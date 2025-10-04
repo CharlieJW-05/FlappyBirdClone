@@ -2,6 +2,10 @@
 
 A professional, feature-rich Flappy Bird clone built with pure HTML5 Canvas and vanilla JavaScript.
 
+## 🎮 [Play the Game Live!](https://charliejw-05.github.io/FlappyBirdClone/)
+
+[![Play Game](https://img.shields.io/badge/🎮-Play%20Now-brightgreen?style=for-the-badge)](https://charliejw-05.github.io/FlappyBirdClone/)
+
 ## 🎮 Features
 
 ### Core Gameplay
@@ -36,6 +40,12 @@ A professional, feature-rich Flappy Bird clone built with pure HTML5 Canvas and 
 - **Clean UI** - Title disappears during gameplay for unobstructed view
 - **Mobile-friendly** - Touch controls and responsive design
 - **Professional start screen** with glowing yellow title
+
+## 🌐 Live Website
+
+**Play online:** [https://charliejw-05.github.io/FlappyBirdClone/](https://charliejw-05.github.io/FlappyBirdClone/)
+
+The game is hosted on GitHub Pages and can be played directly in your browser - no download required!
 
 ## 🚀 How to Play
 
