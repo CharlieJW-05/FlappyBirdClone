@@ -1,0 +1,13 @@
+{
+  "name": "Flappy — One Tap Arcade",
+  "short_name": "Flappy",
+  "description": "A polished one-tap arcade flyer. Dodge the pipes, chase medals, beat your best.",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#4ec0ca",
+  "theme_color": "#4ec0ca",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
