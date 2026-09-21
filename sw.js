@@ -1,4 +1,4 @@
-const CACHE = 'flappy-v2';
+const CACHE = 'flappy-v3';
 const ASSETS = ['.', 'index.html', 'icon.svg', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

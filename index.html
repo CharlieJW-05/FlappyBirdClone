@@ -88,6 +88,7 @@
         <canvas id="gameCanvas" aria-label="Flappy game canvas"></canvas>
     </div>
     <div class="hud" id="hud">
+        <button id="settingsBtn" aria-label="Settings">&#9881;&#65039;</button>
         <button id="soundBtn" aria-label="Toggle sound">&#128266;</button>
         <button id="pauseBtn" aria-label="Pause">&#10074;&#10074;</button>
     </div>
@@ -105,7 +106,7 @@ const STORAGE_KEY = 'flappy.v2';
 
 // ---------- Persistence ----------
 const Store = {
-    data: { best: 0, games: 0, totalScore: 0, muted: false },
+    data: { best: 0, games: 0, totalScore: 0, muted: false, music: true, sfx: true },
     load() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
@@ -146,7 +147,7 @@ class Sound {
         gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     }
     tone({ freq, endFreq, dur, type = 'sine', peak = 0.3, delay = 0 }) {
-        if (this.muted || !this.ensure()) return;
+        if (this.muted || !Store.data.sfx || !this.ensure()) return;
         const t0 = this.ctx.currentTime + delay;
         const osc = this.ctx.createOscillator();
         const g = this.ctx.createGain();
@@ -159,7 +160,7 @@ class Sound {
         osc.stop(t0 + dur + 0.05);
     }
     noise({ dur, peak = 0.2, delay = 0, lowpass = 1200 }) {
-        if (this.muted || !this.ensure()) return;
+        if (this.muted || !Store.data.sfx || !this.ensure()) return;
         const t0 = this.ctx.currentTime + delay;
         const len = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
         const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -202,6 +203,92 @@ class Sound {
     }
 }
 
+// ---------- Music (procedural chiptune loop) ----------
+class Music {
+    constructor(sound) {
+        this.sound = sound;
+        this.playing = false;
+        this.timer = null;
+        this.step = 0;
+        this.next = 0;
+        // note frequencies
+        const N = { C3:131, D3:147, E3:165, F3:175, G3:196, A3:220,
+                    C4:262, D4:294, E4:330, G4:392, A4:440,
+                    C5:523, D5:587, E5:659, G5:784, A5:880 };
+        const _ = 0;
+        // 64 eighth-note steps (8 bars), C-major pentatonic, bouncy
+        this.melody = [
+            N.C5,_,N.E5,_,N.G5,_,N.E5,_,  N.A5,_,N.G5,_,N.E5,N.D5,_,_,
+            N.E5,_,N.G5,_,N.C5,_,N.D5,_,  N.E5,N.D5,N.C5,_,_,_,N.G4,_,
+            N.A4,_,N.C5,_,N.E5,_,N.C5,_,  N.D5,_,N.E5,_,N.G5,_,_,_,
+            N.E5,N.G5,N.A5,_,N.G5,_,N.E5,_,  N.D5,_,N.C5,_,_,_,_,_
+        ];
+        // bass: one note per half-bar (every 4 steps) — C Am F G x2
+        this.bass = [
+            N.C3,N.C3, N.A3,N.A3, N.F3,N.F3, N.G3,N.G3,
+            N.C3,N.C3, N.A3,N.A3, N.F3,N.F3, N.G3,N.G3
+        ];
+    }
+    start() {
+        if (this.playing || !this.sound.ensure()) return;
+        if (!this.gain) {
+            this.gain = this.sound.ctx.createGain();
+            this.gain.gain.value = 0.16;
+            this.gain.connect(this.sound.master);
+        }
+        this.playing = true;
+        this.next = this.sound.ctx.currentTime + 0.05;
+        this.timer = setInterval(() => this.tick(), 100);
+    }
+    stop() {
+        this.playing = false;
+        if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    }
+    tick() {
+        const ctx = this.sound.ctx;
+        const spb = 60 / 112 / 2; // eighth notes at 112 bpm
+        while (this.next < ctx.currentTime + 0.35) {
+            this.schedule(this.step % 64, this.next, spb);
+            this.step++;
+            this.next += spb;
+        }
+    }
+    note(freq, t, dur, type, peak) {
+        const ctx = this.sound.ctx;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = type;
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(peak, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.95);
+        o.connect(g).connect(this.gain);
+        o.start(t);
+        o.stop(t + dur);
+    }
+    schedule(i, t, spb) {
+        const m = this.melody[i];
+        if (m) this.note(m, t, spb * 1.8, 'square', 0.10);
+        if (i % 4 === 0) this.note(this.bass[(i / 4) % 16], t, spb * 3.4, 'triangle', 0.20);
+        // soft off-beat hat
+        if (i % 4 === 2) {
+            const ctx = this.sound.ctx;
+            const len = Math.floor(ctx.sampleRate * 0.03);
+            const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let j = 0; j < len; j++) d[j] = (Math.random() * 2 - 1) * (1 - j / len);
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass'; hp.frequency.value = 6000;
+            const g = ctx.createGain();
+            g.gain.value = 0.05;
+            src.connect(hp).connect(g).connect(this.gain);
+            src.start(t);
+        }
+    }
+}
+
 // ---------- Haptics ----------
 const haptic = (pattern) => {
     if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} }
@@ -237,6 +324,9 @@ class Game {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.sound = new Sound();
+        this.music = new Music(this.sound);
+        this.settingsOpen = false;
+        this.settingsRects = {};
         this.state = STATE.MENU;
         this.time = 0;
         this.acc = 0;
@@ -302,15 +392,31 @@ class Game {
     bindInput() {
         const act = (e) => {
             if (e && e.cancelable) e.preventDefault();
+            if (this.settingsOpen) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (this.canvas.width / rect.width) / this.scale;
+                const y = (e.clientY - rect.top) * (this.canvas.height / rect.height) / this.scale;
+                this.settingsTap(x, y);
+                return;
+            }
             this.onTap();
         };
         this.canvas.addEventListener('pointerdown', act);
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); this.onTap(); }
-            else if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); this.togglePause(); }
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                if (this.settingsOpen) { this.toggleSettings(); return; }
+                this.onTap();
+            }
+            else if (e.code === 'KeyP' || e.code === 'Escape') {
+                e.preventDefault();
+                if (this.settingsOpen) { this.toggleSettings(); return; }
+                this.togglePause();
+            }
         });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden && this.state === STATE.PLAYING && !this.paused) this.togglePause();
+            this.syncMusic();
         });
 
         const soundBtn = document.getElementById('soundBtn');
@@ -318,15 +424,21 @@ class Game {
         soundBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             soundBtn.innerHTML = this.sound.toggle() ? '&#128263;' : '&#128266;';
+            this.syncMusic();
         });
         document.getElementById('pauseBtn').addEventListener('click', (e) => {
             e.stopPropagation();
             this.togglePause();
         });
+        document.getElementById('settingsBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleSettings();
+        });
     }
 
     onTap() {
         this.sound.ensure();
+        this.syncMusic();
         if (this.paused) { this.togglePause(); return; }
         switch (this.state) {
             case STATE.MENU:
@@ -354,6 +466,35 @@ class Game {
         this.paused = !this.paused;
         document.getElementById('pauseBtn').innerHTML = this.paused ? '&#9654;' : '&#10074;&#10074;';
         if (!this.paused) this.last = performance.now();
+        this.syncMusic();
+    }
+
+    toggleSettings() {
+        this.settingsOpen = !this.settingsOpen;
+        if (this.settingsOpen && this.state === STATE.PLAYING && !this.paused) this.togglePause();
+        this.sound.swoosh();
+    }
+
+    settingsTap(x, y) {
+        const hit = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        if (hit(this.settingsRects.close) || !hit(this.settingsRects.panel)) {
+            this.toggleSettings();
+        } else if (hit(this.settingsRects.music)) {
+            Store.data.music = !Store.data.music;
+            Store.save();
+            this.sound.score();
+            this.syncMusic();
+        } else if (hit(this.settingsRects.sfx)) {
+            Store.data.sfx = !Store.data.sfx;
+            Store.save();
+            this.sound.score();
+        }
+    }
+
+    syncMusic() {
+        const want = Store.data.music && !this.sound.muted && !this.paused && !document.hidden;
+        if (want && this.sound.ctx) this.music.start();
+        else this.music.stop();
     }
 
     toReady() {
@@ -667,7 +808,8 @@ class Game {
         if (this.state === STATE.MENU) this.drawMenu(ctx);
         if (this.state === STATE.READY) this.drawReady(ctx);
         if (this.state === STATE.GAMEOVER) this.drawGameOver(ctx);
-        if (this.paused) this.drawPaused(ctx);
+        if (this.paused && !this.settingsOpen) this.drawPaused(ctx);
+        if (this.settingsOpen) this.drawSettings(ctx);
 
         // hit flash
         if (this.flashA > 0) {
@@ -1000,6 +1142,55 @@ class Game {
         ctx.fillRect(0, 0, this.W, this.H);
         this.text(ctx, 'PAUSED', this.W / 2, this.H * 0.42, 44);
         this.text(ctx, 'tap to resume', this.W / 2, this.H * 0.42 + 44, 18, { fill: 'rgba(255,255,255,0.8)', stroke: null, weight: 600 });
+    }
+
+    drawSettings(ctx) {
+        ctx.fillStyle = 'rgba(10,20,30,0.62)';
+        ctx.fillRect(0, 0, this.W, this.H);
+
+        const pw = Math.min(310, this.W * 0.86), ph = 230;
+        const px = this.W / 2 - pw / 2, py = this.H / 2 - ph / 2;
+        this.settingsRects.panel = { x: px, y: py, w: pw, h: ph };
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.4)';
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetY = 8;
+        ctx.fillStyle = 'rgba(222,216,149,0.98)';
+        roundRect(ctx, px, py, pw, ph, 18);
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = 'rgba(120,100,40,0.6)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        this.text(ctx, 'SETTINGS', this.W / 2, py + 36, 26, { fill: '#8a6d1f', stroke: null });
+
+        const row = (label, on, y) => {
+            this.text(ctx, label, px + 28, y, 19, { fill: '#5c4a15', stroke: null, align: 'left', weight: 700 });
+            // toggle switch
+            const tw = 64, th = 34, tx = px + pw - 28 - tw, ty = y - th / 2;
+            ctx.fillStyle = on ? '#5fb23e' : 'rgba(0,0,0,0.22)';
+            roundRect(ctx, tx, ty, tw, th, th / 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(on ? tx + tw - th / 2 : tx + th / 2, ty + th / 2, th / 2 - 4, 0, Math.PI * 2);
+            ctx.fill();
+            this.text(ctx, on ? 'ON' : 'OFF', on ? tx + 18 : tx + tw - 19, ty + th / 2 + 1, 11,
+                { fill: on ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.45)', stroke: null, weight: 800 });
+            // generous hit area: full row
+            return { x: px + 14, y: y - 26, w: pw - 28, h: 52 };
+        };
+        this.settingsRects.music = row('MUSIC', Store.data.music, py + 92);
+        this.settingsRects.sfx = row('SOUND EFFECTS', Store.data.sfx, py + 152);
+
+        // close button
+        const bw = 120, bh = 42;
+        const bx = this.W / 2 - bw / 2;
+        this.drawButton(ctx, bx, py + ph - 60, bw, bh, 'DONE', '#5fb23e');
+        this.settingsRects.close = { x: bx, y: py + ph - 60, w: bw, h: bh };
+        ctx.restore();
     }
 }
 

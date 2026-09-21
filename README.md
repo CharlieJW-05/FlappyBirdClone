@@ -29,6 +29,8 @@ iOS-quality details
 - Auto-pause when the app is backgrounded
 - Web Share: long-press your score on game over to challenge friends
 - Sound synthesized with Web Audio (flap, ding, crash, medal fanfare); mute persists
+- Procedural chiptune background music (112 bpm loop, synthesized live — no audio files)
+- Settings panel (gear icon) with separate music and sound-effects toggles, saved between sessions
 
 Progression
 - Medals: Bronze 10 · Silver 20 · Gold 30 · Platinum 40
